@@ -20,8 +20,11 @@ repositories {
 
 dependencies {
 
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    // Google FCM Ac Tok.
+    implementation 'com.google.auth:google-auth-library-oauth2-http:0.26.0'
 
+
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'com.google.code.gson:gson'

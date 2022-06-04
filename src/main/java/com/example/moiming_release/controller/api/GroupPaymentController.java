@@ -30,13 +30,13 @@ public class GroupPaymentController {
     }
 
     @PutMapping("/update/{uuid}")
-    public TransferModel<GroupPaymentResponseDTO> update(@RequestBody TransferModel<GroupPaymentRequestDTO> request, @PathVariable String uuid) {
+    public TransferModel<GroupPaymentResponseDTO> update(@RequestBody TransferModel<PaymentAndSenderDTO> request, @PathVariable String uuid) {
 
         return groupPaymentLogicService.update(request, uuid);
     }
 
-    @DeleteMapping("/{uuid}")
-    public TransferModel delete(@PathVariable String uuid) {
-        return groupPaymentLogicService.delete(uuid);
+    @PostMapping("/delete")
+    public TransferModel delete(@RequestBody TransferModel<List<String>> requestModel) {
+        return groupPaymentLogicService.delete(requestModel);
     }
 }

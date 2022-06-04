@@ -8,6 +8,7 @@ import com.example.moiming_release.model.network.TransferModel;
 import com.example.moiming_release.model.network.request.MoimingGroupRequestDTO;
 import com.example.moiming_release.model.network.response.MoimingGroupResponseDTO;
 import com.example.moiming_release.model.other.GroupNoticeDTO;
+import com.example.moiming_release.model.other.MoimingGroupEditInfoDto;
 import com.example.moiming_release.repository.MoimingGroupRepository;
 import com.example.moiming_release.repository.MoimingUserRepository;
 import com.example.moiming_release.repository.UserGroupLinkerRepository;
@@ -18,7 +19,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Service // 항상 얘가 무슨 역할인지 Annotation 필수이다!!!!
-public class MoimingGroupLogicService implements CrudInterface<MoimingGroupRequestDTO, MoimingGroupResponseDTO> {
+public class MoimingGroupLogicService {
 
     @Autowired
     private MoimingGroupRepository moimingGroupRepository;
@@ -29,7 +30,6 @@ public class MoimingGroupLogicService implements CrudInterface<MoimingGroupReque
     @Autowired
     private MoimingUserRepository moimingUserRepository;
 
-    @Override
     public TransferModel<MoimingGroupResponseDTO> create(TransferModel<MoimingGroupRequestDTO> request) {
 
         MoimingGroupRequestDTO requestedGroup = request.getData();
@@ -64,17 +64,43 @@ public class MoimingGroupLogicService implements CrudInterface<MoimingGroupReque
 
     }
 
-    @Override
-    public TransferModel<MoimingGroupResponseDTO> read(String uuid) {
-        return null;
+    public TransferModel<MoimingGroupResponseDTO> update(TransferModel<MoimingGroupEditInfoDto> requestModel) {
+
+        MoimingGroupEditInfoDto requestData = requestModel.getData();
+
+        Optional<MoimingGroup> findGroup = moimingGroupRepository.findById(requestData.getGroupUuid());
+
+        MoimingGroup editedGroup;
+
+        if(findGroup.isPresent()){
+
+            MoimingGroup editingGroup = findGroup.get();
+
+            if(requestData.getGroupName().length() != 0){
+                editingGroup.setGroupName(requestData.getGroupName());
+            }
+
+            if(requestData.getGroupInfo().length() != 0){
+                editingGroup.setGroupInfo(requestData.getGroupInfo());
+            }
+
+            // TODO:::
+            if(requestData.getGroupPfImg().length() != 0){
+                editingGroup.setGroupPfImg(requestData.getGroupPfImg());
+            }
+
+            editingGroup.setUpdatedAt(LocalDateTime.now().withNano(0));
+
+            editedGroup = moimingGroupRepository.save(editingGroup);
+        }else{
+
+            return TransferModel.ERROR(404, "");
+        }
+
+
+        return response(editedGroup);
     }
 
-    @Override
-    public TransferModel<MoimingGroupResponseDTO> update(TransferModel<MoimingGroupRequestDTO> request) {
-        return null;
-    }
-
-    @Override
     public TransferModel delete(String uuid) {
         return null;
     }

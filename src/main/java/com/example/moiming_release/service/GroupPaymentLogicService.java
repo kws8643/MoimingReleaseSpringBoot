@@ -1,15 +1,14 @@
 package com.example.moiming_release.service;
 
 
-import com.example.moiming_release.model.entity.GroupPayment;
-import com.example.moiming_release.model.entity.MoimingGroup;
-import com.example.moiming_release.model.entity.Notification;
+import com.example.moiming_release.model.entity.*;
 import com.example.moiming_release.model.network.TransferModel;
 import com.example.moiming_release.model.network.request.GroupPaymentRequestDTO;
 import com.example.moiming_release.model.network.response.GroupPaymentResponseDTO;
 import com.example.moiming_release.model.other.PaymentAndSenderDTO;
 import com.example.moiming_release.repository.GroupPaymentRepository;
 import com.example.moiming_release.repository.MoimingGroupRepository;
+import com.example.moiming_release.repository.MoimingUserRepository;
 import com.example.moiming_release.repository.NotificationRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,6 +24,9 @@ import java.util.UUID;
 public class GroupPaymentLogicService {
 
     @Autowired
+    private MoimingUserRepository userRepository;
+
+    @Autowired
     private GroupPaymentRepository paymentRepository;
 
     @Autowired
@@ -37,6 +39,7 @@ public class GroupPaymentLogicService {
     public TransferModel<GroupPaymentResponseDTO> create(TransferModel<PaymentAndSenderDTO> request) {
 
         UUID sentUserUuid = request.getData().getSentUserUuid();
+        Optional<MoimingUser> findSentUser = userRepository.findById(sentUserUuid);
 
         GroupPaymentRequestDTO requestDTO = request.getData().getPaymentData();
 
@@ -54,6 +57,34 @@ public class GroupPaymentLogicService {
 
         GroupPayment savedPayment = paymentRepository.save(groupPayment);
 
+        // 새로 등록한 Payment 에 대해서 Notification 을 각 그룹원들에 대해서 생성한다
+        List<UserGroupLinker> groupMembers = thisGroup.getGroupUserList();
+
+        String msg = findSentUser.get().getUserName() + "님이 " + thisGroup.getGroupName() + "의 회계장부에서 "
+                + savedPayment.getPaymentName() + "을 추가했어요";
+
+        for (int i = 0; i < groupMembers.size(); i++) {
+
+            MoimingUser memberUser = groupMembers.get(i).getMoimingUser();
+
+            if (!memberUser.getUuid().toString().equals(findSentUser.get().getUuid().toString())) {
+
+                Notification noti = Notification.builder()
+                        .sentUserUuid(sentUserUuid)
+                        .sentActivity("group")
+                        .sentGroupUuid(thisGroup.getUuid())
+                        .msgType(2)
+                        .msgText(msg)
+                        .isRead(false)
+                        .moimingUser(memberUser)
+                        .createdAt(LocalDateTime.now().withNano(0))
+                        .build();
+
+                notiRepository.save(noti);
+            }
+        }
+
+
         // TODO: 그룹 공금에 대해서 세팅해놓는다
         int preGroupPaymentCost = thisGroup.getGroupPayment();
         int paymentCost = savedPayment.getPaymentCost();
@@ -61,7 +92,7 @@ public class GroupPaymentLogicService {
         if (savedPayment.isPaymentType()) {// 수입
 
             preGroupPaymentCost += paymentCost;
-        }else {
+        } else {
 
             preGroupPaymentCost -= paymentCost;
         }
@@ -108,11 +139,15 @@ public class GroupPaymentLogicService {
     }
 
 
-    public TransferModel<GroupPaymentResponseDTO> update(TransferModel<GroupPaymentRequestDTO> request, String paymentUuid) {
+    public TransferModel<GroupPaymentResponseDTO> update(TransferModel<PaymentAndSenderDTO> request, String paymentUuid) {
 
         Optional<GroupPayment> findData = paymentRepository.findById(UUID.fromString(paymentUuid));
 
-        GroupPaymentRequestDTO updateInfo = request.getData();
+        PaymentAndSenderDTO receivedData = request.getData();
+        GroupPaymentRequestDTO updateInfo = receivedData.getPaymentData();
+
+        Optional<MoimingUser> findSentUser = userRepository.findById(receivedData.getSentUserUuid());
+        MoimingUser sentUser = findSentUser.get();
 
         if (findData.isPresent()) {
 
@@ -124,8 +159,8 @@ public class GroupPaymentLogicService {
 
             if (paymentData.isPaymentType()) {// 수입이였다면
 
-                preGroupPaymentCost-= paymentCost;
-            }else {
+                preGroupPaymentCost -= paymentCost;
+            } else {
 
                 preGroupPaymentCost += paymentCost;
             }
@@ -141,10 +176,38 @@ public class GroupPaymentLogicService {
             // 업데이트한 내용을 다시 저장
             GroupPayment savedPayment = paymentRepository.save(paymentData);
 
+            // 새로 등록한 Payment 에 대해서 Notification 을 각 그룹원들에 대해서 생성한다
+            List<UserGroupLinker> groupMembers = paymentGroup.getGroupUserList();
+
+            String msg = sentUser.getUserName() + "님이 " + paymentGroup.getGroupName() + "의 회계장부에서 "
+                    + savedPayment.getPaymentName() + "을 수정했어요";
+
+            for (int i = 0; i < groupMembers.size(); i++) {
+
+                MoimingUser memberUser = groupMembers.get(i).getMoimingUser();
+
+                if (!memberUser.getUuid().toString().equals(receivedData.getSentUserUuid().toString())) {
+
+                    Notification noti = Notification.builder()
+                            .sentUserUuid(receivedData.getSentUserUuid())
+                            .sentActivity("group")
+                            .sentGroupUuid(paymentGroup.getUuid())
+                            .msgType(2)
+                            .msgText(msg)
+                            .isRead(false)
+                            .moimingUser(memberUser)
+                            .createdAt(LocalDateTime.now().withNano(0))
+                            .build();
+
+                    notiRepository.save(noti);
+                }
+            }
+
+
             if (savedPayment.isPaymentType()) {// 수입
 
                 preGroupPaymentCost += paymentCost;
-            }else {
+            } else {
 
                 preGroupPaymentCost -= paymentCost;
             }
@@ -163,15 +226,22 @@ public class GroupPaymentLogicService {
     }
 
 
-    public TransferModel delete(String paymentUuid) {
+    public TransferModel delete(TransferModel<List<String>> requestModel) {
+
+        String paymentUuid = requestModel.getData().get(0);
+        String sentUserUuid = requestModel.getData().get(1);
+
+        Optional<MoimingUser> findSentUser = userRepository.findById(UUID.fromString(sentUserUuid));
+        MoimingUser sentUser = findSentUser.get();
 
         Optional<GroupPayment> findData = paymentRepository.findById(UUID.fromString(paymentUuid));
 
         if (findData.isPresent()) {
 
             GroupPayment paymentData = findData.get();
+            String paymentName = paymentData.getPaymentName();
 
-            paymentRepository.delete(paymentData); // DB 에서 깔끔하게 제거
+            paymentRepository.delete(paymentData); // DB 에서 제거
 
             MoimingGroup paymentGroup = paymentData.getMoimingGroup();
 
@@ -182,7 +252,7 @@ public class GroupPaymentLogicService {
             if (paymentData.isPaymentType()) {// 수입이였다면
 
                 preGroupPaymentCost -= paymentCost;
-            }else {
+            } else {
 
                 preGroupPaymentCost += paymentCost;
             }
@@ -191,6 +261,32 @@ public class GroupPaymentLogicService {
             paymentGroup.setUpdatedAt(LocalDateTime.now().withNano(0));
 
             groupRepository.save(paymentGroup);
+
+            List<UserGroupLinker> groupMembers = paymentGroup.getGroupUserList();
+
+            String msg = sentUser.getUserName() + "님이 " + paymentGroup.getGroupName() + "의 회계장부에서 "
+                    + paymentName + "을 삭제했어요";
+
+            for (int i = 0; i < groupMembers.size(); i++) {
+
+                MoimingUser memberUser = groupMembers.get(i).getMoimingUser();
+
+                if (!memberUser.getUuid().toString().equals(sentUser.getUuid().toString())) {
+
+                    Notification noti = Notification.builder()
+                            .sentUserUuid(sentUser.getUuid())
+                            .sentActivity("group")
+                            .sentGroupUuid(paymentGroup.getUuid())
+                            .msgType(2)
+                            .msgText(msg)
+                            .isRead(false)
+                            .moimingUser(memberUser)
+                            .createdAt(LocalDateTime.now().withNano(0))
+                            .build();
+
+                    notiRepository.save(noti);
+                }
+            }
 
 
         } else {
@@ -219,16 +315,16 @@ public class GroupPaymentLogicService {
     }
 
 
-    private void sendNotification(UUID sentUserUuid, UUID sentGroupUuid, GroupPayment savedPayment){ // 그룹 페이먼트 정보,누가 수정하는지 정보
+    private void sendNotification(UUID sentUserUuid, UUID sentGroupUuid, GroupPayment savedPayment) { // 그룹 페이먼트 정보,누가 수정하는지 정보
 
         // TODO: Group UUID  돌리면서 멤버들에게 모두 보내기.
 /**        private UUID sentUserUuid;
-        private String sentActivity;
-        private UUID sentGroupUuid;
-        private UUID sentSessionUuid;
-        private Integer msgType;
-        private String msgText;
-        private Boolean isRead;**/
+ private String sentActivity;
+ private UUID sentGroupUuid;
+ private UUID sentSessionUuid;
+ private Integer msgType;
+ private String msgText;
+ private Boolean isRead;**/
 
         //TODO: NOTI 내용에 대해서 쭉 정해놓기! --> 전체적으로 어떻게 정할건지,그리고 FCM에는 어떻게 실을건지 설계 후에 하는게 필요.
         //      다 넣을거면 user 찾아서 이름도 넣어야 함.

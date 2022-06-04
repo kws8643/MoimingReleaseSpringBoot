@@ -16,5 +16,4 @@ public class MoimingUserRepositoryTest extends MoimingReleaseApplicationTests {
 
     }
 
-
 }

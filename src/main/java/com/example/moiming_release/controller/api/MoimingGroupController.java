@@ -1,6 +1,5 @@
 package com.example.moiming_release.controller.api;
 
-import com.example.moiming_release.controller.intf.CrudInterface;
 import com.example.moiming_release.model.entity.*;
 import com.example.moiming_release.model.network.TransferModel;
 import com.example.moiming_release.model.network.request.MoimingGroupRequestDTO;
@@ -10,7 +9,6 @@ import com.example.moiming_release.model.network.response.MoimingGroupResponseDT
 import com.example.moiming_release.model.other.*;
 import com.example.moiming_release.repository.*;
 import com.example.moiming_release.service.MoimingGroupLogicService;
-import com.sun.mail.auth.Ntlm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,7 +20,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/group")
-public class MoimingGroupController implements CrudInterface<MoimingGroupRequestDTO, MoimingGroupResponseDTO> {
+public class MoimingGroupController {
 
     @Autowired
     private MoimingGroupLogicService moimingGroupLogicService;
@@ -48,26 +46,26 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
     @Autowired
     private NotificationRepository notiRepository;
 
-    @Override
     @PostMapping("/create")
     public TransferModel<MoimingGroupResponseDTO> create(@RequestBody TransferModel<MoimingGroupRequestDTO> request) {
         return moimingGroupLogicService.create(request);
     }
 
+    @PostMapping("/update")
+    public TransferModel<MoimingGroupResponseDTO> update(@RequestBody TransferModel<MoimingGroupEditInfoDto> request) {
 
-    @Override
+        return moimingGroupLogicService.update(request);
+    }
+
+
+
     public TransferModel<MoimingGroupResponseDTO> read(String uuid) {
         return null;
     }
 
 
-    @Override
-    public TransferModel<MoimingGroupResponseDTO> update(@RequestBody TransferModel<MoimingGroupRequestDTO> request) {
-        return null;
-    }
 
 
-    @Override
     public TransferModel delete(String uuid) {
         return null;
     }
@@ -188,7 +186,7 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
             isNotiChanged = checkUserGroupNotification(thisUserUuid, groupUuid);
         }
 
-        if(isNotiChanged)return TransferModel.OK(sessionAndStatusList, "changed");
+        if (isNotiChanged) return TransferModel.OK(sessionAndStatusList, "changed");
         else return TransferModel.OK(sessionAndStatusList);
 
     }
@@ -206,7 +204,7 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
 
             Notification thisNoti = notiList.get(i);
 
-            if(thisNoti.getSentActivity().equals("group") && !(thisNoti.getIsRead())){
+            if (thisNoti.getSentActivity().equals("group") && !(thisNoti.getIsRead())) {
 
                 thisNoti.setIsRead(true);
 
@@ -284,9 +282,13 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
                 .bgImg(groupRequest.getBgImg())
                 .groupMemberCnt(groupRequest.getGroupMemberCnt())
                 .createdAt(LocalDateTime.now().withNano(0))
+                .groupPayment(0)
                 .build();
 
         MoimingGroup savedGroup = groupRepository.save(creatingGroup);
+
+        Optional<MoimingUser> findCreatingUser = userRepository.findById(savedGroup.getGroupCreatorUuid());
+        MoimingUser creatingUser = findCreatingUser.get();
 
         //TODO: 2. 연결자 생성, 생성자 포함해서 다같이 List 에 포함되어 있기 때문에 한꺼번에 돌려도 됨.
         List<UUID> membersUuidList = requestDto.getMembersUuidList();
@@ -316,6 +318,29 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
                     .bankNumber(groupMember.getBankNumber())
                     .userPfImg(groupMember.getUserPfImg())
                     .build());
+
+            // 연결된 멤버들에 대해서 Notification 생성!
+            String creatingUserName = creatingUser.getUserName();
+
+
+            String textNoti = creatingUserName + "님이 회원님을 " + savedGroup.getGroupName() + "에 초대하셨습니다. 같이 즐거운 모임 만들어 나가세요!";
+
+            // 초대 유저도 리스트에 포함되어 있어서 제외해야 함.
+            if (!groupMember.getUuid().toString().equals(creatingUser.getUuid().toString())) { // 같지 않을 경우 진행
+                // 같이 초대된 유저에게 저장되는 알림
+                Notification invitedNoti = Notification.builder()
+                        .isRead(false)
+                        .sentActivity("group")
+                        .sentGroupUuid(savedGroup.getUuid())
+                        .sentUserUuid(findCreatingUser.get().getUuid())
+                        .msgType(1)
+                        .msgText(textNoti)
+                        .moimingUser(groupMember)
+                        .createdAt(LocalDateTime.now().withNano(0))
+                        .build();
+
+                notiRepository.save(invitedNoti);
+            }
 
         }
 
@@ -349,7 +374,7 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
 
             if (requestData.getIsMoimingUser()) { // 모이밍 멤버일경우 USLinkLogic 으로
 
-                if (i == 0) { //TODO? 이걸 i=0 으로 판단하는게 맞나..?
+                if (requestData.getMoimingUserUuid().toString().equals(creatingUser.getUuid().toString())) {
                     createUserLinker(requestData, true, savedSession);
                 } else {
                     createUserLinker(requestData, false, savedSession);
@@ -361,6 +386,7 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
 
             }
         }
+
 
         MoimingGroupAndMembersDTO transferData = MoimingGroupAndMembersDTO.builder()
                 .moimingGroupDto(savedGroup)
@@ -410,7 +436,7 @@ public class MoimingGroupController implements CrudInterface<MoimingGroupRequest
     }
 
     @PostMapping("/setNotice")
-    public TransferModel<MoimingGroupResponseDTO> groupNoticeRequest(@RequestBody TransferModel<GroupNoticeDTO> requestModel){
+    public TransferModel<MoimingGroupResponseDTO> groupNoticeRequest(@RequestBody TransferModel<GroupNoticeDTO> requestModel) {
 
 
         return moimingGroupLogicService.groupNoticeRequest(requestModel.getData());

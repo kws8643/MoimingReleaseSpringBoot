@@ -49,15 +49,16 @@ public class NotificationLogicService {
 
             NotificationRequestDTO request = requestList.get(i);
 
-            Optional<Notification> findNoti = notiRepository.findBySentSessionUuidAndMoimingUserUuidAndMsgType(request.getSentSessionUuid()
+            Optional<List<Notification>> findNoti = notiRepository.findBySentSessionUuidAndMoimingUserUuidAndMsgType(request.getSentSessionUuid()
                     , request.getToUserUuid(), request.getMsgType());
 
             Optional<MoimingUser> toUser = userRepository.findById(request.getToUserUuid());
 
+            List<Notification> notiList = findNoti.get();
+
             if (toUser.isPresent()) {
 
-                if (findNoti.isEmpty()) {
-
+                if (notiList.size() == 0) {
                     Notification notification = Notification.builder()
                             .sentUserUuid(request.getSentUserUuid())
                             .sentActivity(request.getSentActivity())
@@ -72,9 +73,36 @@ public class NotificationLogicService {
 
                     Notification savedNoti = notiRepository.save(notification);
 
+                    sentSuccessUserUuid.add(toUser.get().getUuid().toString());
+
+                } else {
+
+                    // 이미 해당 정산활동과, 해당 유저간의 메시지가 있는데, 그 메시지가 송금 요청일 경우는 중복 메시지가 들어가게 된다.
+                    Optional<MoimingUser> sentUser = userRepository.findById(request.getSentUserUuid());
+                    Optional<MoimingSession> sentSession = sessionRepository.findById(request.getSentSessionUuid());
+
+                    String msg = sentUser.get().getUserName() + "님이 " + sentSession.get().getSessionName() + " 정산을 기다리고 있어요! " +
+                            "송금하셨다면 편하게 모이밍을 통해 알려주세요";
+
+                    Notification notification = Notification.builder()
+                            .sentUserUuid(request.getSentUserUuid())
+                            .sentActivity(request.getSentActivity())
+                            .sentGroupUuid(request.getSentGroupUuid())
+                            .sentSessionUuid(request.getSentSessionUuid())
+                            .msgType(request.getMsgType())
+                            .msgText(msg)
+                            .isRead(false)
+                            .moimingUser(toUser.get())
+                            .createdAt(LocalDateTime.now().withNano(0))
+                            .build();
+
+                    Notification savedNoti = notiRepository.save(notification);
+
+                    // TODO: 겁나 이상한가?
+                    sentSuccessUserUuid.add("R:" + toUser.get().getUuid().toString());
+
                 }
 
-                sentSuccessUserUuid.add(toUser.get().getUuid().toString());
 
             } else {
                 isFailExist = true;
@@ -84,6 +112,7 @@ public class NotificationLogicService {
 
         if (!isFailExist) return TransferModel.OK(sentSuccessUserUuid);
         else return TransferModel.OK(); // 거의 없지 않을까?
+
     }
 
     public TransferModel<List<ReceivedNotificationDTO>> findUserNotification(String activity, Integer msgType
@@ -137,7 +166,8 @@ public class NotificationLogicService {
     }
 
 
-    public TransferModel deleteNotification(String activity, Integer msgType, String sentUserUuid, String activityUuid) {
+    public TransferModel deleteNotification(String activity, Integer msgType, String sentUserUuid, String
+            activityUuid) {
 
         if (activity.equals("session")) {
             if (msgType == 2) {
@@ -177,37 +207,46 @@ public class NotificationLogicService {
 
                 Notification noti = notiList.get(i);
 
-                Optional<MoimingUser> sentUser = userRepository.findById(noti.getSentUserUuid());
 
-                if(noti.getSentActivity().equals("session")) {
+                if (noti.getSentUserUuid() != null) {
 
-                    Optional<MoimingSession> sentSession = sessionRepository.findById(noti.getSentSessionUuid());
+                    Optional<MoimingUser> sentUser = userRepository.findById(noti.getSentUserUuid());
+
+                    if (noti.getSentActivity().equals("session")) {
+
+                        Optional<MoimingSession> sentSession = sessionRepository.findById(noti.getSentSessionUuid());
+
+                        ReceivedNotificationDTO notiDto = ReceivedNotificationDTO.builder()
+                                .sentUserName(sentUser.get().getUserName())
+                                .sentSessionName(sentSession.get().getSessionName())
+                                .sentGroupName(sentSession.get().getMoimingGroup().getGroupName())
+                                .notification(buildResponseDTO(noti))
+                                .build();
+
+                        responseList.add(notiDto);
+
+                    } else if (noti.getSentActivity().equals("group")) {
+
+
+                        Optional<MoimingGroup> sentGroup = groupRepository.findById(noti.getSentGroupUuid());
+
+                        ReceivedNotificationDTO notiDto = ReceivedNotificationDTO.builder()
+                                .sentUserName(sentUser.get().getUserName())
+                                .sentSessionName("")
+                                .sentGroupName(sentGroup.get().getGroupName())
+                                .notification(buildResponseDTO(noti))
+                                .build();
+
+                        responseList.add(notiDto);
+
+                    }
+                } else { // system 에서 보낸 공지 groupName, sessinName 은 ""
 
                     ReceivedNotificationDTO notiDto = ReceivedNotificationDTO.builder()
-                            .sentUserName(sentUser.get().getUserName())
-                            .sentSessionName(sentSession.get().getSessionName())
-                            .sentGroupName(sentSession.get().getMoimingGroup().getGroupName())
                             .notification(buildResponseDTO(noti))
                             .build();
 
                     responseList.add(notiDto);
-
-                }else if (noti.getSentActivity().equals("group")){
-
-
-                    Optional<MoimingGroup> sentGroup = groupRepository.findById(noti.getSentGroupUuid());
-
-                    ReceivedNotificationDTO notiDto = ReceivedNotificationDTO.builder()
-                            .sentUserName(sentUser.get().getUserName())
-                            .sentSessionName("")
-                            .sentGroupName(sentGroup.get().getGroupName())
-                            .notification(buildResponseDTO(noti))
-                            .build();
-
-                    responseList.add(notiDto);
-
-                }else{ // system 에서 보낸 공지 groupName, sessinName 은 ""
-
                 }
             }
 
